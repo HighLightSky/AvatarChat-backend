@@ -19,11 +19,11 @@ default:
         connection_ttl: 900
       SileroVad:
         module: vad/silerovad/vad_handler_silero
-        speaking_threshold: 0.5      # 说话检测阈值（0-1），0.5是中等敏感度
-        start_delay: 2048            # 开始延迟：约0.13秒
-        end_delay: 12000             # 结束延迟：约0.75秒（增加到原来的2.4倍）
-        buffer_look_back: 8000       # 回溯缓冲：约0.5秒（增加以捕获更多语音开头）
-        speech_padding: 512          # 语音填充：约0.03秒
+        speaking_threshold: 0.1     # 说话检测阈值（0-1），0.5是中等敏感度
+        start_delay: 2048            # 开始延迟
+        end_delay: 2000             # 结束延迟增加到原来的2.4倍）
+        buffer_look_back: 10000       # 回溯缓冲（增加以捕获更多语音开头）
+        speech_padding: 1024          # 语音填充
       SenseVoice:
         enabled: True
         module: asr/sensevoice/asr_handler_sensevoice
