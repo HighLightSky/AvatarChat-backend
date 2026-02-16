@@ -38,3 +38,6 @@ exp/
 uv.lock
 logs/
 .lock
+
+.windsurfrules
+start_lam.bat
