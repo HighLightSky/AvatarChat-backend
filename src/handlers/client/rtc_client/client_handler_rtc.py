@@ -6,9 +6,8 @@ from uuid import uuid4
 from loguru import logger
 
 from engine_utils.directory_info import DirectoryInfo
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-import gradio
 import numpy as np
 from fastapi import FastAPI
 
@@ -386,7 +385,14 @@ class ClientHandlerRtc(ClientHandlerBase):
         self.handler_config = cast(ClientRtcConfigModel, handler_config)
         self.prepare_rtc_definitions()
 
-    def setup_rtc_ui(self, ui, parent_block, fastapi: FastAPI, avatar_config):
+    def setup_webrtc(self, app: FastAPI, avatar_config):
+        """
+        设置 WebRTC 端点和 API
+        
+        参数：
+            app: FastAPI 应用实例
+            avatar_config: 数字人配置
+        """
         turn_entity = RTCProvider().prepare_rtc_configuration(self.handler_config.turn_config)
         if turn_entity is None:
             turn_entity = RTCProvider().prepare_rtc_configuration(self.engine_config.turn_config)
@@ -399,41 +405,37 @@ class ClientHandlerRtc(ClientHandlerBase):
             handler=self.rtc_streamer_factory,
             concurrency_limit=self.handler_config.concurrent_limit,
         )
-        webrtc.mount(fastapi)
+        webrtc.mount(app)
 
-        @fastapi.get('/openavatarchat/initconfig')
-        async def init_config():
+        @app.get('/api/config')
+        async def get_config():
+            """获取初始化配置（WebRTC 配置、数字人配置）"""
             config = {
                 "avatar_config": avatar_config,
                 "rtc_configuration": turn_entity.rtc_configuration if turn_entity is not None else None,
             }
             return JSONResponse(status_code=200, content=config)
 
-        frontend_path = Path(DirectoryInfo.get_src_dir() + '/handlers/client/rtc_client/frontend/dist')
-        if frontend_path.exists():
-            logger.info(f"Serving frontend from {frontend_path}")
-            fastapi.mount('/ui', StaticFiles(directory=frontend_path), name="static")
-            fastapi.add_route('/', RedirectResponse(url='/ui/index.html'))
-        else:
-            logger.warning(f"Frontend directory {frontend_path} does not exist")
-            fastapi.add_route('/', RedirectResponse(url='/gradio'))
+        # 兼容旧版 API 路径
+        @app.get('/openavatarchat/initconfig')
+        async def init_config_legacy():
+            config = {
+                "avatar_config": avatar_config,
+                "rtc_configuration": turn_entity.rtc_configuration if turn_entity is not None else None,
+            }
+            return JSONResponse(status_code=200, content=config)
 
-        if parent_block is None:
-            parent_block = ui
-        with ui:
-            with parent_block:
-                gradio.components.HTML(
-                    """
-                    <h1 id="openavatarchat">
-                       The Gradio page is no longer available. Please use the openavatarchat-webui submodule instead.
-                    </h1>
-                    """,
-                    visible=True
-                )
+        logger.info("WebRTC endpoints registered")
 
-    def on_setup_app(self, app: FastAPI, ui: gradio.blocks.Block, parent_block: Optional[gradio.blocks.Block] = None):
+    def on_setup_app(self, app: FastAPI):
+        """
+        设置 FastAPI 应用的 API 路由
+        
+        参数：
+            app: FastAPI 应用实例
+        """
         avatar_config = {}
-        self.setup_rtc_ui(ui, parent_block, app, avatar_config)
+        self.setup_webrtc(app, avatar_config)
 
     def create_context(self, session_context: SessionContext,
                        handler_config: Optional[HandlerBaseConfigModel] = None) -> HandlerContext:

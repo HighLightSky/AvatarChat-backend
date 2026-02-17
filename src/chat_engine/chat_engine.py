@@ -47,7 +47,7 @@ class ChatEngine(object):
 
         self.sessions: Dict[str, ChatSession] = {}  # 会话字典，key 为 session_id
 
-    def initialize(self, engine_config: ChatEngineConfigModel, app=None, ui=None, parent_block=None):
+    def initialize(self, engine_config: ChatEngineConfigModel, app=None):
         """
         初始化聊天引擎
         
@@ -78,7 +78,7 @@ class ChatEngine(object):
         
         # 初始化 Handler 管理器并加载所有 Handlers
         self.handler_manager.initialize(engine_config)
-        self.handler_manager.load_handlers(engine_config, app, ui, parent_block)
+        self.handler_manager.load_handlers(engine_config, app)
         self.inited = True
 
     def _create_session(self, session_info: SessionInfoData,

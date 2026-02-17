@@ -52,7 +52,6 @@ from inspect import isclass, isabstract
 from types import ModuleType
 from typing import Optional, Dict, Tuple
 
-import gradio
 from fastapi import FastAPI
 from loguru import logger
 
@@ -160,7 +159,7 @@ class HandlerManager:
                 if os.path.exists(find_path):
                     module_path = find_path
                     # 将文件路径转换为 Python 模块路径（如 handlers.vad.silerovad.vad_handler_silero）
-                    module_input_path = handler_config.module.replace("\/", ".").replace("/", ".")
+                    module_input_path = handler_config.module.replace("/", ".")
                     break
             
             if module_path is None:
@@ -296,9 +295,7 @@ class HandlerManager:
             logger.info(f"Registered handler {name}({type(handler)}) with config: {config}")
 
     def load_handlers(self, engine_config: ChatEngineConfigModel,
-                      app: Optional[FastAPI] = None,
-                      ui: Optional[gradio.blocks.Block] = None,
-                      parent_block: Optional[gradio.blocks.Block] = None):
+                      app: Optional[FastAPI] = None):
         """
         加载所有 Handler
         
@@ -325,8 +322,6 @@ class HandlerManager:
         参数：
             engine_config: 引擎配置
             app: FastAPI 应用（用于注册 API）
-            ui: Gradio UI 实例（用于添加组件）
-            parent_block: Gradio 父容器
         """
         # 获取所有启用的 Handler
         enabled_handlers = self.get_enabled_handler_registries()
@@ -345,10 +340,10 @@ class HandlerManager:
             logger.info(f"Handler {registry.base_info.name} loaded in {round(dur_load * 1e3)} milliseconds")
         
         # 设置 ClientHandler 的 Web 接口
-        if app is not None or ui is not None:
+        if app is not None:
             for registry in client_handlers:
                 setup_start = time.monotonic()
-                registry.handler.on_setup_app(app, ui, parent_block)
+                registry.handler.on_setup_app(app)
                 dur_setup = time.monotonic() - setup_start
                 logger.info(f"Setup client handler {registry.base_info.name} loaded in {round(dur_setup * 1e3)} milliseconds")
 

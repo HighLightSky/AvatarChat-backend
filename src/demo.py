@@ -5,26 +5,22 @@ OpenAvatarChat Demo 启动脚本
 1. 解析命令行参数
 2. 加载配置文件
 3. 初始化聊天引擎
-4. 设置 Gradio Web UI
-5. 启动 FastAPI + Uvicorn 服务器
+4. 启动 FastAPI + Uvicorn 服务器
 
 主要组件：
 - ChatEngine: 核心聊天引擎，管理所有 handlers 和会话
-- Gradio: 提供 Web UI 界面
 - FastAPI: 提供 HTTP API 服务
 - Uvicorn: ASGI 服务器
 """
 
 from chat_engine.chat_engine import ChatEngine
-import gradio as gr
 import os
 import argparse
 import sys
 
-import gradio
 import uvicorn
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from engine_utils.directory_info import DirectoryInfo
@@ -113,44 +109,33 @@ class OpenAvatarChatWebServer(uvicorn.Server):
         await super().shutdown(sockets)
 
 
-def setup_demo():
+def setup_app():
     """
-    设置 Demo 应用
+    设置 FastAPI 应用
     
     创建并配置：
-    1. FastAPI 应用（禁用自动生成的 API 文档）
-    2. Gradio UI 界面（带自定义 CSS 样式）
-    3. RTC 容器（用于实时通信组件）
+    1. FastAPI 应用
+    2. CORS 中间件（支持前后端分离）
     
     返回：
         app: FastAPI 应用实例
-        gradio_block: Gradio Blocks 实例
-        rtc_container: RTC 容器组件（用于后续添加 WebRTC 相关 UI）
     """
-    # 创建 FastAPI 应用，禁用自动文档（docs_url 和 redoc_url）
-    app = FastAPI(docs_url=None, redoc_url=None)
+    app = FastAPI(
+        title="OpenAvatarChat API",
+        description="数字人对话系统 API",
+        version="1.0.0"
+    )
 
-    # 自定义 CSS 样式
-    css = """
+    # 配置 CORS 中间件，支持前后端分离
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # 生产环境应配置具体域名
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
-    .app {
-        @media screen and (max-width: 768px) {
-            padding: 8px !important;
-        }
-    }
-    footer {
-        display: none !important;
-    }
-    """
-    # 创建 Gradio UI 界面
-    with gr.Blocks(css=css) as gradio_block:
-        with gr.Column():
-            # RTC 容器，用于后续动态添加 WebRTC 相关组件
-            with gr.Group() as rtc_container:
-                pass
-    # 将 Gradio 应用挂载到 FastAPI 的 /gradio 路径
-    gradio.mount_gradio_app(app, gradio_block, "/gradio")
-    return app, gradio_block, rtc_container
+    return app
 
 
 def main():
@@ -185,8 +170,8 @@ def main():
     # 5. 创建聊天引擎实例
     chat_engine = ChatEngine()
     
-    # 6. 设置 Demo UI 界面
-    demo_app, ui, parent_block = setup_demo()
+    # 6. 创建 FastAPI 应用
+    app = setup_app()
 
     # 7. 初始化聊天引擎
     # 这一步会：
@@ -194,18 +179,15 @@ def main():
     # - 初始化模型
     # - 注册 API 路由
     # - 设置 WebRTC 连接
-    chat_engine.initialize(engine_config, app=demo_app, ui=ui, parent_block=parent_block)
+    chat_engine.initialize(engine_config, app=app)
 
     # 8. 创建 SSL 上下文（用于 HTTPS）
     ssl_context = create_ssl_context(args, service_config)
 
     # 9. 配置并启动 Uvicorn 服务器
-    uvicorn_config = uvicorn.Config(demo_app, host=service_config.host, port=service_config.port, **ssl_context)
+    uvicorn_config = uvicorn.Config(app, host=service_config.host, port=service_config.port, **ssl_context)
     server = OpenAvatarChatWebServer(chat_engine, uvicorn_config)
     server.run()
-
-    # 注意：下面这行是原始的启动方式，已被自定义服务器类替代
-    # uvicorn.run(demo_app, host=service_config.host, port=service_config.port, **ssl_context)
 
 
 if __name__ == "__main__":

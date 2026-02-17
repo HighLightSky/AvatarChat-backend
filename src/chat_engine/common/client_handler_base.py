@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Union, Tuple, Optional
 
-import gradio
 import numpy as np
 from fastapi import FastAPI
 from loguru import logger
@@ -92,7 +91,7 @@ class ClientHandlerBase(HandlerBase, ABC):
         self.handler_delegate.engine_ref = self.engine
 
     @abstractmethod
-    def on_setup_app(self, app: FastAPI, ui: gradio.blocks.Block, parent_block: Optional[gradio.blocks.Block]=None):
+    def on_setup_app(self, app: FastAPI):
         pass
 
     @abstractmethod

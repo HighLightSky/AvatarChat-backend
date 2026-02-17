@@ -3,7 +3,6 @@ import json
 import os.path
 from typing import Dict, Optional, cast
 
-import gradio
 from fastapi import FastAPI
 from loguru import logger
 
@@ -139,7 +138,7 @@ class ClientHandlerLam(ClientHandlerRtc):
             msg = f"Asset file {self.handler_config.asset_path} not found."
             raise ValueError(msg)
 
-    def on_setup_app(self, app: FastAPI, ui: gradio.blocks.Block, parent_block: Optional[gradio.blocks.Block] = None):
+    def on_setup_app(self, app: FastAPI):
         asset_route = "/download/lam_asset"
         motion_data_route = "/ws/lam_data_stream"
 
@@ -170,12 +169,7 @@ class ClientHandlerLam(ClientHandlerRtc):
             "avatar_assets_path": f"{asset_route}/{self.asset_name}",
         }
 
-        self.setup_rtc_ui(
-            ui=ui,
-            parent_block=parent_block,
-            fastapi=app,
-            avatar_config=avatar_config,
-        )
+        self.setup_webrtc(app, avatar_config)
 
     def create_context(self, session_context: SessionContext,
                        handler_config: Optional[HandlerBaseConfigModel] = None) -> HandlerContext:
