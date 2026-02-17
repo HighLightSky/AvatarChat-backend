@@ -407,18 +407,8 @@ class ClientHandlerRtc(ClientHandlerBase):
         )
         webrtc.mount(app)
 
-        @app.get('/api/config')
-        async def get_config():
-            """获取初始化配置（WebRTC 配置、数字人配置）"""
-            config = {
-                "avatar_config": avatar_config,
-                "rtc_configuration": turn_entity.rtc_configuration if turn_entity is not None else None,
-            }
-            return JSONResponse(status_code=200, content=config)
-
-        # 兼容旧版 API 路径
         @app.get('/openavatarchat/initconfig')
-        async def init_config_legacy():
+        async def init_config():
             config = {
                 "avatar_config": avatar_config,
                 "rtc_configuration": turn_entity.rtc_configuration if turn_entity is not None else None,
