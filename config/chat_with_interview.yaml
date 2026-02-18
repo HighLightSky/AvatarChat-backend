@@ -40,7 +40,22 @@ default:
         model_name: "qwen-plus"
         enable_video_input: False
         history_length: 20
+        prompt_separator: "\n\n"
         system_prompt: "你是模拟面试官，请按阶段推进面试并给出简洁、专业的问题与反馈。"
+        initial_prompt_sources:
+          position_requirements: "岗位核心要求：扎实的数据结构与算法基础，具备后端工程经验。"
+          resume_summary: "候选人简历摘要：3年Python后端经验，做过高并发服务与日志系统优化。"
+          interview_rules: "面试规则：每轮只问一个核心问题，必要时追问一层，不直接给标准答案。"
+        initial_prompt_source_order:
+          - interview_rules
+          - position_requirements
+          - resume_summary
+        turn_prompt_sources:
+          scoring_hint: "请关注回答的完整性、准确性与表达清晰度。"
+        turn_prompt_source_order:
+          - stage_hint
+          - rag_context
+          - scoring_hint
         api_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
         stage_order:
           - greeting

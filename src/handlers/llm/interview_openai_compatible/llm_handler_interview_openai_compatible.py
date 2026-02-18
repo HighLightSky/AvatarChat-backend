@@ -28,6 +28,7 @@ from chat_engine.data_models.runtime_data.data_bundle import DataBundle, DataBun
 
 from .interview_flow_controller import InterviewFlowController
 from .interview_history_manager import InterviewHistoryManager
+from .interview_prompt_builder import InterviewPromptBuilder
 from .interview_state_models import CheckpointPayload
 from .ports import EvaluationPort, NullEvaluationPort, NullRagPort, RagPort
 
@@ -41,6 +42,15 @@ class InterviewLLMConfig(HandlerBaseConfigModel, BaseModel):
     api_url: str = Field(default=None)
     enable_video_input: bool = Field(default=False)
     history_length: int = Field(default=20)
+    prompt_separator: str = Field(default="\n\n")
+
+    # 初始系统提示词来源（例如：岗位描述、简历摘要、题库规则）。
+    initial_prompt_sources: Dict[str, str] = Field(default_factory=dict)
+    initial_prompt_source_order: list[str] = Field(default_factory=list)
+
+    # 每轮提示词来源（例如：实时分析、阶段附加要求）。
+    turn_prompt_sources: Dict[str, str] = Field(default_factory=dict)
+    turn_prompt_source_order: list[str] = Field(default_factory=list)
 
     stage_order: list[str] = Field(default_factory=lambda: ["greeting", "technical", "resume", "experience", "closing"])
     stage_turn_limits: Dict[str, int] = Field(default_factory=lambda: {
@@ -75,6 +85,9 @@ class InterviewLLMContext(HandlerContext):
         # 会话级能力组件
         self.history: Optional[InterviewHistoryManager] = None
         self.flow_controller: Optional[InterviewFlowController] = None
+        self.prompt_builder: Optional[InterviewPromptBuilder] = None
+        self.turn_prompt_sources: Dict[str, str] = {}
+        self.turn_prompt_source_order: list[str] = []
 
         # 扩展能力端口（MVP 默认 Null Object）
         self.rag_port: RagPort = NullRagPort()
@@ -118,11 +131,19 @@ class HandlerInterviewLLM(HandlerBase, ABC):
 
         context = InterviewLLMContext(session_context.session_info.session_id)
         context.model_name = handler_config.model_name
-        context.system_prompt = {"role": "system", "content": handler_config.system_prompt}
+        context.prompt_builder = InterviewPromptBuilder(separator=handler_config.prompt_separator)
+        merged_system_prompt = context.prompt_builder.build_system_prompt(
+            base_system_prompt=handler_config.system_prompt,
+            initial_sources=handler_config.initial_prompt_sources,
+            preferred_order=handler_config.initial_prompt_source_order,
+        )
+        context.system_prompt = {"role": "system", "content": merged_system_prompt}
         context.api_key = handler_config.api_key
         context.api_url = handler_config.api_url
         context.enable_video_input = handler_config.enable_video_input
         context.history = InterviewHistoryManager(history_length=handler_config.history_length)
+        context.turn_prompt_sources = dict(handler_config.turn_prompt_sources)
+        context.turn_prompt_source_order = list(handler_config.turn_prompt_source_order)
         context.flow_controller = InterviewFlowController(
             stage_order=handler_config.stage_order,
             stage_turn_limits=handler_config.stage_turn_limits,
@@ -168,13 +189,24 @@ class HandlerInterviewLLM(HandlerBase, ABC):
         # 获取当前阶段并执行（可选）RAG。
         stage = context.flow_controller.get_current_stage()
         rag_result = context.rag_port.retrieve(chat_text, stage.stage.value, context.session_id)
+        if context.prompt_builder is None:
+            context.prompt_builder = InterviewPromptBuilder()
 
-        current_messages = context.history.to_openai_messages(stage_hint=stage.prompt_hint, current_user_text=chat_text)
+        # 使用 PromptBuilder 聚合多源提示词，生成本轮用户输入。
+        turn_sources = dict(context.turn_prompt_sources)
+        turn_sources["stage_hint"] = stage.prompt_hint
         if rag_result.content:
-            current_messages.append({
-                "role": "system",
-                "content": f"可参考知识：{rag_result.content}",
-            })
+            turn_sources["rag_context"] = rag_result.content
+        turn_prompt = context.prompt_builder.build_turn_prompt(
+            human_text=chat_text,
+            turn_sources=turn_sources,
+            preferred_order=context.turn_prompt_source_order,
+        )
+
+        current_messages = context.history.to_openai_messages(
+            stage_hint="",
+            current_user_text=turn_prompt,
+        )
 
         try:
             completion = context.client.chat.completions.create(
