@@ -38,8 +38,12 @@ class InterviewLLMConfig(HandlerBaseConfigModel, BaseModel):
 
     model_name: str = Field(default="qwen-plus")
     system_prompt: str = Field(default="你是模拟面试官，请按阶段推进面试并给出简洁、专业的问题与反馈。")
+    # 兼容旧字段（建议改用 llm_api_key / llm_api_url）。
     api_key: str = Field(default=os.getenv("DASHSCOPE_API_KEY"))
     api_url: str = Field(default=None)
+    # LLM 独立 API 配置：用于与其他服务（ASR/TTS）做凭据和地址隔离。
+    llm_api_key: str = Field(default=os.getenv("INTERVIEW_LLM_API_KEY", os.getenv("DASHSCOPE_API_KEY")))
+    llm_api_url: str = Field(default=os.getenv("INTERVIEW_LLM_API_URL"))
     enable_video_input: bool = Field(default=False)
     history_length: int = Field(default=20)
     prompt_separator: str = Field(default="\n\n")
@@ -62,6 +66,8 @@ class InterviewLLMConfig(HandlerBaseConfigModel, BaseModel):
     })
 
     checkpoint_enabled: bool = Field(default=True)
+    auto_opening_enabled: bool = Field(default=True)
+    opening_prompt: str = Field(default="请你作为面试官，先做简短开场，问候候选人并说明接下来将开始面试。")
 
 
 class InterviewLLMContext(HandlerContext):
@@ -97,6 +103,9 @@ class InterviewLLMContext(HandlerContext):
         self.local_checkpoints: list[CheckpointPayload] = []
         self.checkpoint_enabled = True
         self.interview_finished = False
+        self.auto_opening_enabled = True
+        self.opening_prompt = ""
+        self.opening_sent = False
 
 
 class HandlerInterviewLLM(HandlerBase, ABC):
@@ -121,8 +130,9 @@ class HandlerInterviewLLM(HandlerBase, ABC):
     def load(self, engine_config: ChatEngineConfigModel, handler_config: Optional[BaseModel] = None):
         # 启动期参数校验。
         if isinstance(handler_config, InterviewLLMConfig):
-            if not handler_config.api_key:
-                raise ValueError("api_key is required in config when use interview llm handler")
+            resolved_api_key = handler_config.llm_api_key or handler_config.api_key
+            if not resolved_api_key:
+                raise ValueError("llm_api_key (or api_key) is required in config when use interview llm handler")
 
     def create_context(self, session_context: SessionContext, handler_config=None):
         # 为每个 session 创建独立上下文，避免跨会话污染。
@@ -138,8 +148,9 @@ class HandlerInterviewLLM(HandlerBase, ABC):
             preferred_order=handler_config.initial_prompt_source_order,
         )
         context.system_prompt = {"role": "system", "content": merged_system_prompt}
-        context.api_key = handler_config.api_key
-        context.api_url = handler_config.api_url
+        # 优先使用独立 LLM 配置，未提供时回退到旧字段。
+        context.api_key = handler_config.llm_api_key or handler_config.api_key
+        context.api_url = handler_config.llm_api_url or handler_config.api_url
         context.enable_video_input = handler_config.enable_video_input
         context.history = InterviewHistoryManager(history_length=handler_config.history_length)
         context.turn_prompt_sources = dict(handler_config.turn_prompt_sources)
@@ -149,11 +160,55 @@ class HandlerInterviewLLM(HandlerBase, ABC):
             stage_turn_limits=handler_config.stage_turn_limits,
         )
         context.checkpoint_enabled = handler_config.checkpoint_enabled
+        context.auto_opening_enabled = handler_config.auto_opening_enabled
+        context.opening_prompt = handler_config.opening_prompt
         context.client = OpenAI(api_key=context.api_key, base_url=context.api_url)
         return context
 
     def start_context(self, session_context, handler_context):
-        pass
+        context = cast(InterviewLLMContext, handler_context)
+        if not context.auto_opening_enabled or context.opening_sent:
+            return
+
+        stage = context.flow_controller.get_current_stage() if context.flow_controller else None
+        opening_messages = [{"role": "user", "content": context.opening_prompt}]
+        speech_id = f"opening-{context.session_id}"
+
+        try:
+            completion = context.client.chat.completions.create(
+                model=context.model_name,
+                messages=[context.system_prompt] + opening_messages,
+                stream=False,
+            )
+            opening_text = ""
+            if completion and completion.choices and completion.choices[0] and completion.choices[0].message:
+                opening_text = completion.choices[0].message.content or ""
+            opening_text = opening_text.strip()
+            if not opening_text:
+                return
+
+            output_definition = self.get_handler_detail(session_context, context).outputs[ChatDataType.AVATAR_TEXT].definition
+            first_output = DataBundle(output_definition)
+            first_output.set_main_data(opening_text)
+            first_output.add_meta("avatar_text_end", False)
+            first_output.add_meta("speech_id", speech_id)
+            context.submit_data(first_output)
+
+            end_output = DataBundle(output_definition)
+            end_output.set_main_data("")
+            end_output.add_meta("avatar_text_end", True)
+            end_output.add_meta("speech_id", speech_id)
+            end_output.add_meta("interview_finished", False)
+            if context.flow_controller is not None:
+                end_output.add_meta("interview_progress", context.flow_controller.export_progress())
+            context.submit_data(end_output)
+
+            if context.history is not None and stage is not None:
+                context.history.add_avatar_message(opening_text, stage=stage.stage.value, turn_index=0)
+            context.opening_sent = True
+            logger.info("Interview opening message sent by LLM")
+        except Exception as e:
+            logger.error(f"failed to generate opening message: {e}")
 
     def handle(self, context: HandlerContext, inputs: ChatData, output_definitions: Dict[ChatDataType, HandlerDataInfo]):
         """处理单条输入并在轮次结束时触发一次 LLM 推理。"""

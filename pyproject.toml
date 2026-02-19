@@ -32,6 +32,7 @@ dependencies = [
     "torchvision",
     "torchaudio",
     "python-dotenv>=1.1.0",
+    "pymysql>=1.1.1",
 ]
 
 [tool.uv.workspace]

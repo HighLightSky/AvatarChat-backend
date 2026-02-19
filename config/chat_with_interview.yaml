@@ -38,10 +38,20 @@ default:
         enabled: True
         module: llm/interview_openai_compatible/llm_handler_interview_openai_compatible
         model_name: "qwen-plus"
+        mysql:
+          host: null   # default: INTERVIEW_DB_HOST or 127.0.0.1
+          port: null   # default: INTERVIEW_DB_PORT or 3306
+          user: null   # default: INTERVIEW_DB_USER or root
+          password: null  # default: INTERVIEW_DB_PASSWORD
+          database: null  # default: INTERVIEW_DB_NAME or open_avatar_chat
+          charset: null   # default: INTERVIEW_DB_CHARSET or utf8mb4
         enable_video_input: False
         history_length: 20
         prompt_separator: "\n\n"
         system_prompt: "你是模拟面试官，请按阶段推进面试并给出简洁、专业的问题与反馈。"
+        # LLM 独立 API 配置（与 ASR/TTS 等服务隔离）。
+        llm_api_url: "https://apis.iflow.cn/v1"
+        # llm_api_key: "" # default=os.getenv("INTERVIEW_LLM_API_KEY") or os.getenv("DASHSCOPE_API_KEY")
         initial_prompt_sources:
           position_requirements: "岗位核心要求：扎实的数据结构与算法基础，具备后端工程经验。"
           resume_summary: "候选人简历摘要：3年Python后端经验，做过高并发服务与日志系统优化。"
@@ -56,7 +66,9 @@ default:
           - stage_hint
           - rag_context
           - scoring_hint
-        api_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        # 兼容旧字段（可不填）:
+        # api_url: "https://dashscope.aliyuncs.com/compatible-mode/v1"
+        # api_key: ""
         stage_order:
           - greeting
           - technical
@@ -69,7 +81,8 @@ default:
           resume: 3
           experience: 2
           closing: 1
+        auto_opening_enabled: True
+        opening_prompt: "请你作为面试官先做开场白：欢迎候选人，简要说明面试流程，然后提出第一个问题。"
         checkpoint_enabled: True
-        # api_key: "" # default=os.getenv("DASHSCOPE_API_KEY")
       LAM_Driver:
         module: avatar/lam/avatar_handler_lam_audio2expression
